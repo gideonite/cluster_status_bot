@@ -2,6 +2,7 @@
 
 import os
 import time
+import datetime
 import requests
 from slackclient import SlackClient
 from bs4 import BeautifulSoup as bs
@@ -14,17 +15,24 @@ AT_BOT = "<@" + BOT_ID + ">"
 EXAMPLE_COMMAND = "do"
 CLUSTER_STATUS_URL = "https://scicomp.ethz.ch/wiki/System_status"
 
+def log(msg):
+    # TODO use a framework
+    timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+    print(timestamp + " LOG: " + msg)
+
 def parse_status_from_href(href):
     if 'red' in href:
         return 'down'
     elif 'orange' in href:
         return 'partially operational'
     elif 'green' in href:
-        'up and running'
+        return 'up and running'
     else:
         raise Exception("unhandled system status")
 
 def fetch_cluster_status():
+    log("fetching cluster status")
+
     page = requests.get(CLUSTER_STATUS_URL)
     soup = bs(page.content, "lxml")
     tables = soup.findAll('table')
@@ -46,16 +54,30 @@ def fetch_cluster_status():
 
     msgs = [parse_status_from_href(img) for img in imgs]
 
-    return list(zip(service_names, msgs)), ('down' in msgs)
+    ret = list(zip(service_names, msgs))
 
-def report(msgs, slack_client):
-    print("LOG: reporting...")
+    ret = [(service_name, msg) for (service_name, msg) in ret if 'Brutus' not in service_name]
 
-    text = '```' + "\n".join([service + ": " + status for service, status in msgs]) + '```'
+    return ret, ('down' in msgs)
+
+def send_msg(msg, slack_client):
+    log("sending msg: " + msg)
 
     slack_client.api_call("chat.postMessage", \
                           channel="@gideon", \
-                          text=text, as_user=True)
+                          text=msg, as_user=True)
+    
+def report(msgs, slack_client):
+    log("reporting")
+
+    for service,status in msgs:
+        print(service, status)
+
+    text = '```'\
+           + "\n".join([service + ": " + status for service, status in msgs]) \
+           + '```'
+
+    send_msg(text, slack_client)
 
 REPORTED = False
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
@@ -65,13 +87,13 @@ if __name__ == "__main__":
         print("StarterBot connected and running!")
 
         while True:
-            msgs, should_i_report = fetch_cluster_status()
+            msgs, is_broken = fetch_cluster_status()
 
-            if should_i_report and not REPORTED:
+            if is_broken and not REPORTED:
                 report(msgs, slack_client)
                 REPORTED = True
-            elif not should_i_report:
-                print("LOG: status all good!")
+            elif not is_broken and REPORTED:
+                send_msg("all systems are go!", slack_client)
                 REPORTED = False
 
             time.sleep(READ_WEBSOCKET_DELAY)
