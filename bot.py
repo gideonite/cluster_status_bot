@@ -81,7 +81,7 @@ def report(msgs, slack_client):
 
 REPORTED = False
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
-READ_WEBSOCKET_DELAY = 1 # seconds
+READ_WEBSOCKET_DELAY = 60 # seconds
 if __name__ == "__main__":
     if slack_client.rtm_connect():
         print("StarterBot connected and running!")
